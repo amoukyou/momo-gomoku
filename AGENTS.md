@@ -1,6 +1,6 @@
 # 墨墨五子棋 — Baicizhan Ace-1S e-ink device turned into a Gomoku console
 
-Read `NOTES.md` first: it has the verified pinout, firmware format and recovery steps.
+Read `docs/HANDOFF.md` (status, pitfalls, next steps) and `NOTES.md` (verified pinout, firmware format, recovery) first.
 
 ## Hardware (verified on the device)
 - SoC Jieli AC7916AB (WL82 / AC791N), 320 MHz, 8 MB SDRAM; 16 MB SPI NOR flash; chipkey 0xF181.

@@ -4,7 +4,7 @@
 
 - 可爱的墨墨开机动画、主菜单、五子棋（人机三档 AI + 双人对战）、悔棋与暂停菜单
 - 目前是"内存试玩版"：通过 USB 把程序放进芯片 SRAM 里运行，**不写 flash**，复位即回到原厂系统
-- 正式版（烧进 flash、开机直接进游戏）还在计划中，见 `NOTES.md`
+- 正式版（烧进 flash、开机直接进游戏）还在计划中，见 [`docs/HANDOFF.md`](docs/HANDOFF.md)
 
 > 与百词斩、杰理无任何关系。仓库里不含任何原厂固件；杰理 SDK 和编译器需自行从官方渠道获取。
 > 改造有风险，请先完整备份自己设备的 flash（`jlmac/backup.sh`），并读完 `AGENTS.md` 里的注意事项。
@@ -48,7 +48,7 @@ sudo ./jlmac/ramrun.sh 3
 - `game/art/` 动画画布（浏览器里画，导出成点阵）
 - `jlmac/` macOS 下的 USB 下载后端
 - `analysis/` 杰理固件格式解析脚本
-- `NOTES.md` 逆向笔记（引脚、固件格式、救急）· `AGENTS.md` 给编程助手的说明
+- `docs/HANDOFF.md` 交接文档（现状、踩过的坑、下一步）· `NOTES.md` 逆向笔记 · `AGENTS.md` 给编程助手的说明
 
 ## 致谢
 
