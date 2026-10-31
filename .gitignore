@@ -1,0 +1,11 @@
+# never publish: stock firmware dump (vendor code + this device's identifiers)
+backup/
+# generated from the Mac's PingFang font (not redistributable): run game/tools/mkfont.swift
+game/src/font_data.c
+# local environment and build output
+.venv/
+game/build/
+.claude/
+__pycache__/
+*.pyc
+.DS_Store

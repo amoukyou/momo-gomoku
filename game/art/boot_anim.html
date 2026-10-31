@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>墨墨开机动画</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=block" rel="stylesheet">
+<style>
+  :root { --bg: #f6f1ea; --ink: #2b2b2b; --muted: #8a8178; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #1d1b19; --ink: #eee; --muted: #a39a90; } }
+  :root[data-theme="dark"] { --bg: #1d1b19; --ink: #eee; --muted: #a39a90; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink); font-family: "PingFang SC", system-ui, sans-serif; }
+  h1 { font-family: "ZCOOL KuaiLe", sans-serif; font-weight: 400; font-size: 24px; margin: 0 0 4px; }
+  p { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 16px; }
+  figure { margin: 0; }
+  figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  canvas.view { width: 264px; max-width: calc(100vw - 32px); image-rendering: pixelated; background: #fff; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+  #status { font-size: 13px; margin: 8px 0 16px; }
+</style>
+</head>
+<body>
+<h1>墨墨五子棋大挑战 · 开机 / 锁屏动画</h1>
+<p>264×176 黑白点阵，和设备屏幕上看到的一致（放大 2 倍显示）</p>
+<div id="status">正在加载字体…</div>
+<div class="grid" id="grid"></div>
+
+<script>
+const W = 264, H = 176, NFRAMES = 6;
+const TITLE = "墨墨五子棋大挑战";
+const KUAILE = '"ZCOOL KuaiLe"';
+
+// ---- drawing helpers (drawn in grayscale, thresholded to 1-bit afterwards) ----
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+function sparkle(c, x, y, s) {
+  c.beginPath();
+  c.moveTo(x, y - s); c.quadraticCurveTo(x, y, x + s, y); c.quadraticCurveTo(x, y, x, y + s);
+  c.quadraticCurveTo(x, y, x - s, y); c.quadraticCurveTo(x, y, x, y - s);
+  c.fillStyle = "#000"; c.fill();
+}
+function heart(c, x, y, s, filled) {
+  c.beginPath();
+  c.moveTo(x, y + s * 0.9);
+  c.bezierCurveTo(x - s * 1.4, y - s * 0.1, x - s * 0.6, y - s * 1.1, x, y - s * 0.35);
+  c.bezierCurveTo(x + s * 0.6, y - s * 1.1, x + s * 1.4, y - s * 0.1, x, y + s * 0.9);
+  if (filled) { c.fillStyle = "#000"; c.fill(); } else { c.lineWidth = 1.5; c.strokeStyle = "#000"; c.stroke(); }
+}
+function stone(c, x, y, r, black) {
+  c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2);
+  if (black) {
+    c.fillStyle = "#000"; c.fill();
+    c.beginPath(); c.arc(x - r * 0.35, y - r * 0.35, r * 0.22, 0, Math.PI * 2); c.fillStyle = "#fff"; c.fill();
+  } else {
+    c.fillStyle = "#fff"; c.fill(); c.lineWidth = 2; c.strokeStyle = "#000"; c.stroke();
+    c.beginPath(); c.arc(x - r * 0.3, y - r * 0.3, r * 0.2, 0, Math.PI * 2); c.fillStyle = "#000"; c.fill();
+  }
+}
+function motionLines(c, x, y, len) {
+  c.strokeStyle = "#000"; c.lineWidth = 1.5; c.lineCap = "round";
+  for (const dx of [-6, 0, 6]) { c.beginPath(); c.moveTo(x + dx, y - len - (dx ? 0 : 4)); c.lineTo(x + dx, y - 4 - (dx ? 3 : 0)); c.stroke(); }
+}
+// dithered "grey" for e-ink: a 1-pixel checkerboard pattern
+let DITHER = "#000";
+function makeDither() {
+  const p = document.createElement("canvas"); p.width = p.height = 2;
+  const pc = p.getContext("2d"); pc.fillStyle = "#fff"; pc.fillRect(0, 0, 2, 2);
+  pc.fillStyle = "#000"; pc.fillRect(0, 0, 1, 1); pc.fillRect(1, 1, 1, 1);
+  return p;
+}
+
+function momo(c, cx, by, eyesOpen, wave, mouth = "w") {
+  const eyes = eyesOpen === true ? "open" : eyesOpen === false ? "happy" : eyesOpen;
+  // ink-drop body: round bottom, soft point on top
+  const h = 54, r = 25;
+  const cy = by - r;
+  c.beginPath();
+  c.moveTo(cx, by - h);
+  c.bezierCurveTo(cx + 6, by - h + 10, cx + r, cy - 14, cx + r, cy);
+  c.arc(cx, cy, r, 0, Math.PI, false);
+  c.bezierCurveTo(cx - r, cy - 14, cx - 6, by - h + 10, cx, by - h);
+  c.fillStyle = "#000"; c.fill();
+  // little feet
+  for (const s of [-1, 1]) { c.beginPath(); c.ellipse(cx + s * 11, by + 1, 7, 4, 0, 0, Math.PI * 2); c.fill(); }
+  // arms
+  c.lineWidth = 5; c.lineCap = "round"; c.strokeStyle = "#000";
+  c.beginPath(); c.moveTo(cx - r + 3, cy + 2); c.lineTo(cx - r - 6, cy + 9); c.stroke();
+  c.beginPath();
+  if (wave) { c.moveTo(cx + r - 3, cy - 2); c.lineTo(cx + r + 9, cy - 14); } else { c.moveTo(cx + r - 3, cy + 2); c.lineTo(cx + r + 6, cy + 9); }
+  c.stroke();
+  if (wave) {   // little wave marks next to the raised hand
+    c.lineWidth = 1.5;
+    for (const k of [0, 1]) { c.beginPath(); c.arc(cx + r + 9, cy - 15, 8 + k * 4, -1.35, -0.55); c.stroke(); }
+  }
+  // face
+  const ey = cy - 5;
+  for (const s of [-1, 1]) {
+    const ex = cx + s * 9;
+    if (eyes === "open") {
+      c.beginPath(); c.ellipse(ex, ey, 5.5, 7, 0, 0, Math.PI * 2); c.fillStyle = "#fff"; c.fill();
+      c.beginPath(); c.ellipse(ex + 1, ey + 1.5, 3, 4, 0, 0, Math.PI * 2); c.fillStyle = "#000"; c.fill();
+      c.beginPath(); c.arc(ex + 2, ey - 1, 1.3, 0, Math.PI * 2); c.fillStyle = "#fff"; c.fill();
+    } else if (eyes === "sleepy") {   // half-closed: lower half of the eye, heavy lid on top
+      c.beginPath(); c.ellipse(ex, ey + 1, 5.5, 4, 0, 0, Math.PI); c.fillStyle = "#fff"; c.fill();
+      c.beginPath(); c.ellipse(ex + 1, ey + 2, 2.6, 2.4, 0, 0, Math.PI); c.fillStyle = "#000"; c.fill();
+      c.beginPath(); c.lineWidth = 1.6; c.strokeStyle = "#fff"; c.moveTo(ex - 6, ey + 0.5); c.lineTo(ex + 6, ey + 0.5); c.stroke();
+    } else if (eyes === "closed") {   // sleeping: soft downward arcs
+      c.beginPath(); c.lineWidth = 2; c.strokeStyle = "#fff";
+      c.arc(ex, ey - 1, 4.5, 0.25 * Math.PI, 0.75 * Math.PI); c.stroke();
+    } else {   // happy closed eyes ^ ^
+      c.beginPath(); c.lineWidth = 2; c.strokeStyle = "#fff";
+      c.moveTo(ex - 4, ey + 2); c.lineTo(ex, ey - 2); c.lineTo(ex + 4, ey + 2); c.stroke();
+    }
+    // blush (dithered)
+    c.beginPath(); c.ellipse(cx + s * 15, ey + 9, 4.5, 2.6, 0, 0, Math.PI * 2); c.fillStyle = DITHER; c.fill();
+  }
+  c.beginPath(); c.lineWidth = 1.6; c.strokeStyle = "#fff";
+  if (mouth === "yawn") {          // big round yawn
+    c.ellipse(cx, ey + 11, 3.5, 4.5, 0, 0, Math.PI * 2); c.fillStyle = "#fff"; c.fill();
+  } else if (mouth === "sleep") {  // tiny relaxed line
+    c.moveTo(cx - 2.5, ey + 10); c.quadraticCurveTo(cx, ey + 11.5, cx + 2.5, ey + 10); c.stroke();
+  } else {                         // small "w"
+    c.moveTo(cx - 4, ey + 9); c.quadraticCurveTo(cx - 2, ey + 12, cx, ey + 9); c.quadraticCurveTo(cx + 2, ey + 12, cx + 4, ey + 9); c.stroke();
+  }
+}
+
+function zzz(c, x, y, size) {
+  c.font = `${size}px ${KUAILE}`; c.fillStyle = "#000"; c.textBaseline = "alphabetic"; c.fillText("Z", x, y);
+}
+
+function moon(c, x, y, r) {
+  c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fillStyle = "#000"; c.fill();
+  c.beginPath(); c.arc(x + r * 0.45, y - r * 0.3, r * 0.85, 0, Math.PI * 2); c.fillStyle = "#fff"; c.fill();
+}
+
+// Falling asleep: frames 0-2, then the final still (lock screen, or power-off when `off`)
+function drawSleepFrame(c, n, off) {
+  background(c);
+  ground(c);
+  stone(c, 72, 133, 10, true);
+  stone(c, 192, 133, 10, false);
+  if (n === 0) {
+    momo(c, W / 2, 140, "sleepy", false, "yawn");
+    bubble(c, 170, 58, "哈～欠");
+  } else {
+    momo(c, W / 2, 140, "closed", false, "sleep");
+    zzz(c, 160, 90, 13);
+    if (n >= 2) { zzz(c, 172, 74, 17); moon(c, W - 40, 34, 13); sparkle(c, W - 70, 24, 4.5); }
+    if (n >= 3) zzz(c, 188, 54, 22);
+  }
+  if (n >= 3) {
+    sparkle(c, 30, 30, 5); sparkle(c, 52, 50, 3.5);
+    c.font = `24px ${KUAILE}`; c.fillStyle = "#000"; c.textBaseline = "alphabetic";
+    const t = off ? "墨墨去睡觉啦" : "墨墨睡着啦～";
+    c.fillText(t, 22, 46);
+    c.font = `16px ${KUAILE}`;
+    const label = off ? "长按大圆键 开机" : "按大圆键 叫醒墨墨";
+    const lw = Math.ceil(c.measureText(label).width) + 26;
+    const px = Math.round((W - lw) / 2), py = 148;
+    roundRect(c, px, py, lw, 22, 11);
+    c.fillStyle = "#fff"; c.fill(); c.lineWidth = 2; c.strokeStyle = "#000"; c.stroke();
+    c.fillStyle = "#000"; c.textBaseline = "middle"; c.fillText(label, px + 13, py + 12);
+  }
+}
+
+function bubble(c, x, y, text) {
+  c.font = `18px ${KUAILE}`;
+  const w = Math.ceil(c.measureText(text).width) + 18, h = 26;
+  roundRect(c, x, y, w, h, 11);
+  c.fillStyle = "#fff"; c.fill(); c.lineWidth = 2; c.strokeStyle = "#000"; c.stroke();
+  c.beginPath(); c.moveTo(x + 8, y + h - 1); c.lineTo(x - 2, y + h + 7); c.lineTo(x + 16, y + h - 1);
+  c.fillStyle = "#fff"; c.fill(); c.stroke();
+  c.fillRect(x + 9, y + h - 3, 6, 3);
+  c.fillStyle = "#000"; c.textBaseline = "middle"; c.fillText(text, x + 9, y + h / 2 + 1);
+}
+
+function background(c) {
+  c.fillStyle = "#fff"; c.fillRect(0, 0, W, H);
+  c.fillStyle = "#000";
+  for (let y = 10, row = 0; y < H; y += 12, row++)
+    for (let x = 10 + (row % 2) * 6; x < W; x += 12) c.fillRect(x, y, 1, 1);
+  roundRect(c, 3, 3, W - 6, H - 6, 14);
+  c.lineWidth = 2; c.strokeStyle = "#000"; c.stroke();
+}
+
+function ground(c) {
+  // a soft wavy line, like the wave under the car on the reference page
+  c.beginPath(); c.lineWidth = 2; c.strokeStyle = "#000";
+  for (let x = 14; x <= W - 14; x++) {
+    const y = 144 + Math.sin(x / 9) * 1.6;
+    if (x === 14) c.moveTo(x, y); else c.lineTo(x, y);
+  }
+  c.stroke();
+}
+
+function drawFrame(c, n) {
+  background(c);
+  sparkle(c, W - 24, 22, 7);
+  if (n >= 1) ground(c);
+
+  // the black stone falls in frame 1 and rests from frame 2
+  if (n === 1) { stone(c, 72, 92, 10, true); motionLines(c, 72, 80, 16); }
+  if (n >= 2) stone(c, 72, 133, 10, true);
+  // the white stone falls in frame 2 and rests from frame 3
+  if (n === 2) { stone(c, 192, 92, 10, false); motionLines(c, 192, 80, 16); }
+  if (n >= 3) stone(c, 192, 133, 10, false);
+
+  if (n === 3) momo(c, W / 2, 140, false, false);
+  if (n >= 4) momo(c, W / 2, 140, true, true);
+  if (n === 4) bubble(c, 170, 58, "嗨～");
+
+  if (n >= 5) {
+    // title card
+    c.font = `27px ${KUAILE}`;
+    c.textBaseline = "alphabetic";
+    const tw = c.measureText(TITLE).width;
+    const tx = Math.round((W - tw) / 2), ty = 44;
+    c.fillStyle = "#000"; c.fillText(TITLE, tx, ty);
+    sparkle(c, tx - 12, 22, 6);
+    sparkle(c, tx + tw + 10, 40, 4.5);
+    heart(c, 30, 62, 5.5, true);
+    heart(c, 52, 76, 4.5, false);
+    heart(c, W - 36, 70, 5.5, false);
+    // "press any key" pill
+    c.font = `16px ${KUAILE}`;
+    const label = "按任意键开始", lw = Math.ceil(c.measureText(label).width) + 26;
+    const px = Math.round((W - lw) / 2), py = 148;
+    roundRect(c, px, py, lw, 22, 11);
+    c.fillStyle = "#fff"; c.fill(); c.lineWidth = 2; c.strokeStyle = "#000"; c.stroke();
+    c.fillStyle = "#000"; c.textBaseline = "middle"; c.fillText(label, px + 13, py + 12);
+    heart(c, px + lw - 6, py + 2, 4, true);
+  }
+}
+
+// ---- 1-bit conversion ----
+function toBits(c) {
+  const img = c.getImageData(0, 0, W, H).data;
+  const bytes = new Uint8Array(W / 8 * H);
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const v = img[(y * W + x) * 4];
+      if (v < 128) bytes[y * (W / 8) + (x >> 3)] |= 0x80 >> (x & 7);
+    }
+  return bytes;
+}
+
+const SHEETS = [];
+for (let n = 0; n < NFRAMES; n++) SHEETS.push({ group: "boot", label: `开机 第 ${n + 1} 帧`, draw: c => drawFrame(c, n) });
+for (let n = 0; n < 4; n++) SHEETS.push({ group: "sleep", label: n < 3 ? `锁屏 第 ${n + 1} 帧` : "锁屏画面", draw: c => drawSleepFrame(c, n, false) });
+SHEETS.push({ group: "off", label: "关机画面", draw: c => drawSleepFrame(c, 3, true) });
+
+function render() {
+  const grid = document.getElementById("grid");
+  const frames = [];
+  for (const sheet of SHEETS) {
+    const src = document.createElement("canvas"); src.width = W; src.height = H;
+    const c = src.getContext("2d");
+    DITHER = c.createPattern(makeDither(), "repeat");
+    sheet.draw(c);
+    const bits = toBits(c);
+    frames.push(bits);
+
+    const view = document.createElement("canvas"); view.width = W; view.height = H; view.className = "view";
+    const vc = view.getContext("2d"), out = vc.createImageData(W, H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const on = bits[y * (W / 8) + (x >> 3)] & (0x80 >> (x & 7));
+      const i = (y * W + x) * 4; out.data[i] = out.data[i + 1] = out.data[i + 2] = on ? 20 : 250; out.data[i + 3] = 255;
+    }
+    vc.putImageData(out, 0, 0);
+    const fig = document.createElement("figure");
+    const cap = document.createElement("figcaption"); cap.textContent = sheet.label;
+    fig.append(view, cap); grid.append(fig);
+  }
+  return frames;
+}
+
+async function main() {
+  const status = document.getElementById("status");
+  try {
+    await document.fonts.load(`27px ${KUAILE}`, TITLE + "按任意键开始嗨～哈欠睡着啦去觉长大圆开机叫醒Z");
+  } catch (e) {}
+  const ok = document.fonts.check(`27px ${KUAILE}`, TITLE);
+  const frames = render();
+  status.textContent = ok ? "字体已加载，正在保存…" : "站酷快乐体没加载成功，标题用了后备字体";
+  if (location.protocol.startsWith("http")) {
+    const b64 = frames.map(f => btoa(String.fromCharCode(...f)));
+    const pick = g => b64.filter((_, i) => SHEETS[i].group === g);
+    const body = { font_ok: ok, frames: pick("boot"), sleep: pick("sleep"), off: pick("off") };
+    const r = await fetch("/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    status.textContent = (ok ? "字体已加载。" : "字体未加载！") + (r.ok ? " 点阵已保存到固件源码。" : " 保存失败。");
+  }
+}
+main();
+</script>
+</body>
+</html>
